@@ -67,6 +67,7 @@ function getRuntimeConfig(config: A2AConfig): A2AConfig {
   const runtimeConfig: A2AConfig = {
     ...config,
     server: { ...config.server },
+    security: { ...config.security },
   };
 
   if (process.env.PI_A2A_SERVER_ENABLED !== undefined) {
@@ -92,6 +93,13 @@ function getRuntimeConfig(config: A2AConfig): A2AConfig {
 
   if (process.env.PI_A2A_ADVERTISED_URL) {
     runtimeConfig.server.advertisedUrl = process.env.PI_A2A_ADVERTISED_URL.replace(/\/$/, "");
+  }
+
+  if (process.env.PI_A2A_AUTH) {
+    const auth = process.env.PI_A2A_AUTH.toLowerCase();
+    if (auth === "none" || auth === "bearer") {
+      runtimeConfig.security.defaultScheme = auth;
+    }
   }
 
   return runtimeConfig;

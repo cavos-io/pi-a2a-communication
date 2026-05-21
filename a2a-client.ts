@@ -20,6 +20,7 @@ import type {
   ClientConfig,
   SecurityConfig,
   AgentCard,
+  Artifact,
 } from "./types.js";
 
 /**
@@ -95,6 +96,7 @@ export class A2AClient {
       const abortController = new AbortController();
       const requestId = request.id as string;
       this.pendingStreams.set(requestId, abortController);
+      let latestTask: A2ATask | null = null;
 
       // Add abort signal listener
       if (options.signal) {
@@ -107,18 +109,36 @@ export class A2AClient {
 
       this.sendStreamingRequest(agent, request, abortController.signal, (update) => {
         if (update.type === "task") {
-          // Task complete
-          this.pendingStreams.delete(requestId);
-          resolve(update.task);
+          latestTask = update.task;
+          onUpdate(update.task);
+          const state = update.task.status?.state;
+          if (state && ["completed", "failed", "canceled", "rejected"].includes(state)) {
+            this.pendingStreams.delete(requestId);
+            resolve(update.task);
+          }
         } else if (update.type === "status_update") {
           // Status update
+          latestTask = {
+            ...(latestTask || { id: update.taskId, contextId: update.contextId }),
+            status: update.status,
+          } as A2ATask;
           onUpdate({
             id: update.taskId,
             contextId: update.contextId,
             status: update.status,
           });
+          const state = update.status.state;
+          if (["completed", "failed", "canceled", "rejected"].includes(state)) {
+            this.pendingStreams.delete(requestId);
+            resolve(latestTask);
+          }
         } else if (update.type === "artifact_update") {
           // Artifact update
+          const artifacts = this.mergeArtifacts(latestTask?.artifacts || [], update.artifact);
+          latestTask = {
+            ...(latestTask || { id: update.taskId, contextId: update.contextId, status: { state: "working" } }),
+            artifacts,
+          } as A2ATask;
           onUpdate({
             id: update.taskId,
             contextId: update.contextId,
@@ -356,7 +376,7 @@ export class A2AClient {
     signal: AbortSignal,
     onUpdate: (update: StreamResponse) => void
   ): Promise<void> {
-    const url = this.getA2AEndpoint(agent);
+    const url = this.getA2AEndpoint(agent, "/sendStreamingMessage");
     const body = JSON.stringify(request);
     
     const headers: Record<string, string> = {
@@ -439,9 +459,19 @@ export class A2AClient {
   /**
    * Get the A2A endpoint URL from agent card
    */
-  private getA2AEndpoint(agent: RemoteAgent): string {
-    // Use the agent's URL directly or look for interface in capabilities
-    return agent.url;
+  private getA2AEndpoint(agent: RemoteAgent, endpointPath = "/sendMessage"): string {
+    const endpoint = new URL(agent.url);
+    if (
+      endpoint.pathname === "/" ||
+      endpoint.pathname === "" ||
+      endpoint.pathname === "/sendMessage" ||
+      endpoint.pathname === "/sendStreamingMessage"
+    ) {
+      endpoint.pathname = endpointPath;
+    } else {
+      endpoint.pathname = `${endpoint.pathname.replace(/\/$/, "")}${endpointPath}`;
+    }
+    return endpoint.toString();
   }
 
   /**
@@ -462,6 +492,17 @@ export class A2AClient {
     
     // Fall back to global security config
     return this.buildGlobalAuthHeader();
+  }
+
+  /**
+   * Merge task artifacts without duplicating repeated SSE artifact updates.
+   */
+  private mergeArtifacts(existing: Artifact[], artifact: Artifact): Artifact[] {
+    const byId = new Set(existing.map((item) => item.artifactId));
+    if (byId.has(artifact.artifactId)) {
+      return existing.map((item) => item.artifactId === artifact.artifactId ? artifact : item);
+    }
+    return [...existing, artifact];
   }
 
   /**

@@ -163,7 +163,7 @@ export class A2AServer {
       }
 
       // Route requests
-      if (path === "/.well-known/agent-card") {
+      if (path === "/.well-known/agent-card" || path === "/.well-known/agent-card.json") {
         await this.handleAgentCard(req, res);
       } else if (path === "/sendMessage" || path === "/sendStreamingMessage") {
         await this.handleSendMessage(req, res, path === "/sendStreamingMessage");
@@ -703,7 +703,7 @@ export class A2AServer {
    * Create default agent card for this pi instance
    */
   private createAgentCard(): AgentCard {
-    return {
+    const agentCard: AgentCard = {
       name: "pi-coding-agent",
       description: "pi coding agent exposed via A2A protocol",
       url: this.getAdvertisedUrl(),
@@ -742,15 +742,20 @@ export class A2AServer {
       ],
       defaultInputModes: ["text/plain", "application/json"],
       defaultOutputModes: ["text/plain", "application/json", "text/markdown", "text/code"],
-      securitySchemes: {
+    };
+
+    if (this.security.defaultScheme !== "none") {
+      agentCard.securitySchemes = {
         bearer: {
           type: "http",
           scheme: "bearer",
           description: "Bearer token authentication",
         },
-      },
-      securityRequirements: [{ schemes: { bearer: [] } }],
-    };
+      };
+      agentCard.securityRequirements = [{ schemes: { bearer: [] } }];
+    }
+
+    return agentCard;
   }
 
   /**
