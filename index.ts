@@ -185,6 +185,14 @@ function getRuntimeConfig(config: A2AConfig): A2AConfig {
     runtimeConfig.server.advertisedUrl = process.env.PI_A2A_ADVERTISED_URL.replace(/\/$/, "");
   }
 
+  if (process.env.PI_A2A_AGENT_ID) {
+    runtimeConfig.server.agentId = process.env.PI_A2A_AGENT_ID;
+  }
+
+  if (process.env.PI_A2A_AGENT_NAME) {
+    runtimeConfig.server.agentName = process.env.PI_A2A_AGENT_NAME;
+  }
+
   if (process.env.PI_A2A_AUTH) {
     const auth = process.env.PI_A2A_AUTH.toLowerCase();
     if (auth === "none" || auth === "bearer") {

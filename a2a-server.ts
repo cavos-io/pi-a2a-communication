@@ -786,7 +786,8 @@ export class A2AServer {
    */
   private createAgentCard(): AgentCard {
     const agentCard: AgentCard = {
-      name: "pi-coding-agent",
+      id: this.config.agentId,
+      name: this.config.agentName || "pi-coding-agent",
       description: "pi coding agent exposed via A2A protocol",
       url: this.getAdvertisedUrl(),
       version: "1.0.0",

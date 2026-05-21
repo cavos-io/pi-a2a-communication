@@ -12,6 +12,7 @@
  * Agent Card - Self-describing manifest for an A2A agent
  */
 export interface AgentCard {
+  id?: string;
   name: string;
   description: string;
   url: string;
@@ -207,6 +208,8 @@ export interface ServerConfig {
   host: string;
   basePath: string;
   advertisedUrl?: string;
+  agentId?: string;
+  agentName?: string;
   /**
    * How incoming A2A tasks are executed.
    * - "session": submit the task into the active Pi session so normal tools can run.
