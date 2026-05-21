@@ -51,7 +51,9 @@ export interface ExtensionContext {
   };
   model: unknown;
   modelRegistry: {
-    getApiKey: (model: unknown) => Promise<string>;
+    getApiKeyAndHeaders: (
+      model: unknown
+    ) => Promise<{ ok: true; apiKey?: string; headers?: Record<string, string> } | { ok: false; error: string }>;
   };
   sessionManager: {
     getBranch: () => unknown[];
@@ -99,7 +101,7 @@ export function serializeConversation(messages: unknown[]): string;
 
 export interface Message {
   role: "user" | "assistant" | "system";
-  content: unknown[];
+  content: string | unknown[];
   timestamp?: number;
   usage?: {
     input?: number;
@@ -115,7 +117,8 @@ export interface Message {
 }
 
 export interface CompleteOptions {
-  apiKey: string;
+  apiKey?: string;
+  headers?: Record<string, string>;
   signal?: AbortSignal;
 }
 
@@ -126,9 +129,28 @@ export interface CompleteResult {
 
 export function complete(
   model: unknown,
-  params: { systemPrompt: string; messages: Message[] },
+  params: { systemPrompt?: string; messages: Message[] },
   options: CompleteOptions
 ): Promise<CompleteResult>;
+
+export interface AssistantMessage {
+  role: "assistant";
+  content: Array<{ type: "text"; text: string } | Record<string, unknown>>;
+  stopReason: string;
+  errorMessage?: string;
+}
+
+export interface Context {
+  systemPrompt?: string;
+  messages: Message[];
+  tools?: unknown[];
+}
+
+export function completeSimple(
+  model: unknown,
+  context: Context,
+  options: CompleteOptions & { timeoutMs?: number }
+): Promise<AssistantMessage>;
 
 export function StringEnum<T extends readonly string[]>(
   values: T,

@@ -198,12 +198,28 @@ export interface ClientConfig {
 /**
  * Server configuration
  */
+export type ServerExecutionMode = "model" | "session";
+export type ServerSessionReplyMode = "submit" | "await";
+
 export interface ServerConfig {
   enabled: boolean;
   port: number;
   host: string;
   basePath: string;
   advertisedUrl?: string;
+  /**
+   * How incoming A2A tasks are executed.
+   * - "session": submit the task into the active Pi session so normal tools can run.
+   * - "model": answer directly with the configured model only, without filesystem/tool access.
+   */
+  executionMode?: ServerExecutionMode;
+  /**
+   * How session execution responds to A2A callers.
+   * - "await": submit the task to the active Pi session and return the final assistant reply.
+   * - "submit": submit the task and immediately return a confirmation message.
+   */
+  sessionReplyMode?: ServerSessionReplyMode;
+  taskTimeout?: number;
   ssl?: {
     cert: string;
     key: string;

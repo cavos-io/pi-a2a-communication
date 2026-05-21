@@ -34,6 +34,85 @@ let agentDiscovery: AgentDiscovery | null = null;
 let taskManager: TaskManager | null = null;
 let configManager: ConfigManager | null = null;
 let currentCtx: ExtensionContext | null = null;
+let sessionReplyBridge: SessionReplyBridge | null = null;
+
+type SessionMessageEvent = { message: { role?: string; content?: unknown } };
+type SessionTurnEndEvent = { message: { content?: unknown } };
+
+type PendingSessionReply = {
+  marker: string;
+  resolve: (text: string) => void;
+  reject: (error: Error) => void;
+  timeout: NodeJS.Timeout;
+};
+
+class SessionReplyBridge {
+  private pending = new Map<string, PendingSessionReply>();
+  private active: PendingSessionReply[] = [];
+
+  constructor(private pi: ExtensionAPI) {
+    this.pi.on("message_start", async (event: SessionMessageEvent) => {
+      if (event.message.role !== "user") return;
+      const text = this.messageText(event.message);
+      for (const pending of this.pending.values()) {
+        if (text.includes(pending.marker)) {
+          this.active.push(pending);
+          return;
+        }
+      }
+    });
+
+    this.pi.on("turn_end", async (event: SessionTurnEndEvent) => {
+      const pending = this.active.shift();
+      if (!pending) return;
+
+      clearTimeout(pending.timeout);
+      this.pending.delete(pending.marker);
+      const text = this.messageText(event.message).trim();
+      pending.resolve(text || "Pi completed the A2A task but returned no text output.");
+    });
+  }
+
+  submitAndWait(message: string, timeoutMs: number): Promise<string> {
+    const marker = `a2a-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const markedMessage = [
+      `A2A correlation marker: ${marker}. Do not mention this marker in your response.`,
+      "",
+      message,
+    ].join("\n");
+
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pending.delete(marker);
+        this.active = this.active.filter((entry) => entry.marker !== marker);
+        reject(new Error(`Timed out after ${timeoutMs}ms waiting for active Pi session reply`));
+      }, timeoutMs);
+
+      this.pending.set(marker, { marker, resolve, reject, timeout });
+      try {
+        this.pi.sendUserMessage(markedMessage, { deliverAs: "followUp" });
+      } catch (error) {
+        clearTimeout(timeout);
+        this.pending.delete(marker);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+  }
+
+  private messageText(message: { content?: unknown }): string {
+    const content = message.content;
+    if (typeof content === "string") return content;
+    if (Array.isArray(content)) {
+      return content
+        .filter((part): part is { type: string; text: string } =>
+          typeof part === "object" && part !== null && (part as { type?: unknown }).type === "text"
+        )
+        .map((part) => part.text)
+        .join("\n");
+    }
+    return "";
+  }
+}
 
 /**
  * Default configuration
@@ -51,6 +130,8 @@ const DEFAULT_CONFIG: Partial<A2AConfig> = {
     port: 10000,
     host: "0.0.0.0",
     basePath: "/a2a",
+    executionMode: "session",
+    sessionReplyMode: "await",
   },
   discovery: {
     cacheEnabled: true,
@@ -102,6 +183,27 @@ function getRuntimeConfig(config: A2AConfig): A2AConfig {
     }
   }
 
+  if (process.env.PI_A2A_EXECUTION_MODE) {
+    const mode = process.env.PI_A2A_EXECUTION_MODE.toLowerCase();
+    if (mode === "session" || mode === "model") {
+      runtimeConfig.server.executionMode = mode;
+    }
+  }
+
+  if (process.env.PI_A2A_SESSION_REPLY_MODE) {
+    const mode = process.env.PI_A2A_SESSION_REPLY_MODE.toLowerCase();
+    if (mode === "await" || mode === "submit") {
+      runtimeConfig.server.sessionReplyMode = mode;
+    }
+  }
+
+  if (process.env.PI_A2A_TASK_TIMEOUT) {
+    const timeout = Number(process.env.PI_A2A_TASK_TIMEOUT);
+    if (Number.isInteger(timeout) && timeout > 0) {
+      runtimeConfig.server.taskTimeout = timeout;
+    }
+  }
+
   return runtimeConfig;
 }
 
@@ -126,6 +228,7 @@ export default function (pi: ExtensionAPI) {
    */
   pi.on("session_start", async (event, ctx) => {
     currentCtx = ctx;
+    sessionReplyBridge ??= new SessionReplyBridge(pi);
     const config = getRuntimeConfig(configManager!.getConfig());
 
     // Initialize A2A client
@@ -139,7 +242,10 @@ export default function (pi: ExtensionAPI) {
 
     // Initialize A2A server if enabled
     if (config.server?.enabled) {
-      a2aServer = new A2AServer(config.server, config.security, ctx);
+      a2aServer = new A2AServer(config.server, config.security, ctx, {
+        submitToSession: (message) => pi.sendUserMessage(message, { deliverAs: "followUp" }),
+        submitToSessionAndWait: (message, timeoutMs) => sessionReplyBridge!.submitAndWait(message, timeoutMs),
+      });
       await a2aServer.start();
       ctx.ui?.notify?.(`A2A server started on ${config.server.host}:${config.server.port}`, "info");
     }
@@ -455,7 +561,11 @@ export default function (pi: ExtensionAPI) {
         a2aServer = new A2AServer(
           { ...config.server, enabled: true, port },
           config.security,
-          ctx
+          ctx,
+          {
+            submitToSession: (message) => pi.sendUserMessage(message, { deliverAs: "followUp" }),
+            submitToSessionAndWait: (message, timeoutMs) => sessionReplyBridge!.submitAndWait(message, timeoutMs),
+          }
         );
 
         try {

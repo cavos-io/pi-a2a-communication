@@ -10,6 +10,7 @@ import * as https from "node:https";
 import * as fs from "node:fs";
 import { URL } from "node:url";
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { AssistantMessage, Context as LlmContext } from "@mariozechner/pi-ai";
 import type { 
   ServerConfig, 
   SecurityConfig, 
@@ -26,6 +27,10 @@ import type {
  * Task handler function type
  */
 type TaskHandler = (task: A2ATask, onUpdate: (update: Partial<A2ATask>) => void) => Promise<A2ATask>;
+type SessionExecutor = {
+  submitToSession?: (message: string) => void;
+  submitToSessionAndWait?: (message: string, timeoutMs: number) => Promise<string>;
+};
 
 /**
  * A2A Server class
@@ -40,11 +45,13 @@ export class A2AServer {
   private taskHandlers: Map<string, TaskHandler> = new Map();
   private subscribers: Map<string, Set<http.ServerResponse>> = new Map();
   private running = false;
+  private sessionExecutor: SessionExecutor;
 
-  constructor(config: ServerConfig, security: SecurityConfig, ctx: ExtensionContext) {
+  constructor(config: ServerConfig, security: SecurityConfig, ctx: ExtensionContext, sessionExecutor: SessionExecutor = {}) {
     this.config = config;
     this.security = security;
     this.ctx = ctx;
+    this.sessionExecutor = sessionExecutor;
     
     // Create default agent card for this pi instance
     this.agentCard = this.createAgentCard();
@@ -234,8 +241,14 @@ export class A2AServer {
       res.setHeader("Connection", "keep-alive");
       res.writeHead(200);
 
-      // Send initial task state
-      this.sendSSE(res, { type: "task", task });
+      // Send initial task state without using a task event because some
+      // clients treat task events as terminal.
+      this.sendSSE(res, {
+        type: "status_update",
+        taskId: task.id,
+        contextId: task.contextId || "",
+        status: task.status,
+      });
 
       // Process task asynchronously
       this.processTaskStreaming(task, res).catch(error => {
@@ -544,9 +557,79 @@ export class A2AServer {
    * Execute a task using pi's capabilities
    */
   private async executePiTask(message: string): Promise<string> {
-    // This would integrate with pi's actual task execution
-    // For now, return a placeholder
-    return `[A2A Task Result]\n\nMessage received: ${message}\n\nThis is a placeholder response from the A2A server. In a full implementation, this would execute the task using pi's capabilities.`;
+    if ((this.config.executionMode ?? "session") === "session") {
+      return this.submitToActiveSession(message);
+    }
+
+    const model = this.ctx.model;
+    if (!model) {
+      throw new Error("Pi model is not available in the extension context");
+    }
+
+    const auth = await this.ctx.modelRegistry.getApiKeyAndHeaders(model);
+    if (auth.ok !== true) {
+      throw new Error((auth as { ok: false; error: string }).error);
+    }
+
+    const context: LlmContext = {
+      systemPrompt:
+        "You are the Pi coding agent responding to an Agent2Agent (A2A) request. " +
+        "Answer concisely. This server is configured for model-only execution, so if the request needs filesystem or tool access, explain that limitation.",
+      messages: [
+        {
+          role: "user",
+          content: message,
+          timestamp: Date.now(),
+        },
+      ],
+    };
+
+    const { completeSimple } = await import("@mariozechner/pi-ai");
+    const response = await completeSimple(model, context, {
+      apiKey: auth.apiKey,
+      headers: auth.headers,
+      timeoutMs: this.config.taskTimeout ?? 120000,
+    });
+
+    const text = this.assistantText(response);
+    return text || "Pi completed the A2A task but returned no text output.";
+  }
+
+  private async submitToActiveSession(message: string): Promise<string> {
+    const sessionMessage = [
+      "A2A task received. Execute it in this Pi session with normal tools enabled.",
+      "",
+      message,
+    ].join("\n");
+
+    if ((this.config.sessionReplyMode ?? "await") === "submit") {
+      if (!this.sessionExecutor.submitToSession) {
+        throw new Error("A2A server is configured for session execution, but no Pi session executor is available");
+      }
+
+      this.sessionExecutor.submitToSession(sessionMessage);
+
+      return [
+        "A2A task submitted to the active Pi session for tool-enabled execution.",
+        "Watch the Pi session attached to this server for file/command activity and final results.",
+      ].join("\n");
+    }
+
+    if (!this.sessionExecutor.submitToSessionAndWait) {
+      throw new Error(
+        "A2A server is configured for awaited session replies, but no Pi session reply executor is available"
+      );
+    }
+
+    return this.sessionExecutor.submitToSessionAndWait(sessionMessage, this.config.taskTimeout ?? 120000);
+  }
+
+  private assistantText(message: AssistantMessage): string {
+    return message.content
+      .filter((part): part is { type: "text"; text: string } => part.type === "text")
+      .map((part) => part.text)
+      .join("\n")
+      .trim();
   }
 
   /**
@@ -556,15 +639,14 @@ export class A2AServer {
     message: string,
     onProgress: (progress: string) => void
   ): Promise<string> {
-    // Simulate progress updates
-    onProgress("Analyzing request...");
-    await this.delay(500);
-    
-    onProgress("Processing task...");
-    await this.delay(1000);
-    
-    onProgress("Generating response...");
-    await this.delay(500);
+    const mode = this.config.executionMode ?? "session";
+    onProgress(mode === "session" ? "Submitting task to active Pi session..." : "Analyzing request...");
+    await this.delay(250);
+
+    if (mode === "model") {
+      onProgress("Generating model-only response...");
+      await this.delay(250);
+    }
 
     return this.executePiTask(message);
   }
@@ -586,9 +668,9 @@ export class A2AServer {
 
     switch (this.security.defaultScheme) {
       case "bearer":
-        return authHeader === `Bearer ${this.security.bearerToken}`;
+        return !!this.security.bearerToken && authHeader === `Bearer ${this.security.bearerToken}`;
       case "apiKey":
-        return authHeader === `ApiKey ${this.security.apiKey}`;
+        return !!this.security.apiKey && authHeader === `ApiKey ${this.security.apiKey}`;
       default:
         return false;
     }
