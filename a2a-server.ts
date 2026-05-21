@@ -142,7 +142,7 @@ export class A2AServer {
    */
   private async handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     const url = new URL(req.url || "/", `http://${req.headers.host}`);
-    const path = url.pathname;
+    const path = this.getRoutePath(url.pathname);
 
     try {
       // CORS headers
@@ -706,7 +706,7 @@ export class A2AServer {
     return {
       name: "pi-coding-agent",
       description: "pi coding agent exposed via A2A protocol",
-      url: `http://${this.config.host}:${this.config.port}`,
+      url: this.getAdvertisedUrl(),
       version: "1.0.0",
       provider: {
         organization: "pi",
@@ -751,6 +751,44 @@ export class A2AServer {
       },
       securityRequirements: [{ schemes: { bearer: [] } }],
     };
+  }
+
+  /**
+   * Get route path after removing the configured base path when present.
+   */
+  private getRoutePath(pathname: string): string {
+    const basePath = this.getBasePath();
+    if (basePath !== "/" && (pathname === basePath || pathname.startsWith(`${basePath}/`))) {
+      const routePath = pathname.slice(basePath.length) || "/";
+      return routePath.startsWith("/") ? routePath : `/${routePath}`;
+    }
+
+    return pathname;
+  }
+
+  /**
+   * Get the URL advertised in the Agent Card.
+   */
+  private getAdvertisedUrl(): string {
+    if (this.config.advertisedUrl) {
+      return this.config.advertisedUrl.replace(/\/$/, "");
+    }
+
+    const basePath = this.getBasePath();
+    const origin = `http://${this.config.host}:${this.config.port}`;
+    return basePath === "/" ? origin : `${origin}${basePath}`;
+  }
+
+  /**
+   * Normalize configured base path.
+   */
+  private getBasePath(): string {
+    const basePath = this.config.basePath?.trim();
+    if (!basePath || basePath === "/") {
+      return "/";
+    }
+
+    return `/${basePath.replace(/^\/+|\/+$/g, "")}`;
   }
 
   /**

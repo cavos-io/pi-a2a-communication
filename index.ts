@@ -63,6 +63,52 @@ const DEFAULT_CONFIG: Partial<A2AConfig> = {
   },
 };
 
+function getRuntimeConfig(config: A2AConfig): A2AConfig {
+  const runtimeConfig: A2AConfig = {
+    ...config,
+    server: { ...config.server },
+  };
+
+  if (process.env.PI_A2A_SERVER_ENABLED !== undefined) {
+    runtimeConfig.server.enabled = isEnabled(process.env.PI_A2A_SERVER_ENABLED);
+  } else if (process.env.PI_A2A_PORT) {
+    runtimeConfig.server.enabled = true;
+  }
+
+  if (process.env.PI_A2A_HOST) {
+    runtimeConfig.server.host = process.env.PI_A2A_HOST;
+  }
+
+  if (process.env.PI_A2A_PORT) {
+    const port = Number(process.env.PI_A2A_PORT);
+    if (Number.isInteger(port) && port > 0 && port <= 65535) {
+      runtimeConfig.server.port = port;
+    }
+  }
+
+  if (process.env.PI_A2A_BASE_PATH) {
+    runtimeConfig.server.basePath = normalizeBasePath(process.env.PI_A2A_BASE_PATH);
+  }
+
+  if (process.env.PI_A2A_ADVERTISED_URL) {
+    runtimeConfig.server.advertisedUrl = process.env.PI_A2A_ADVERTISED_URL.replace(/\/$/, "");
+  }
+
+  return runtimeConfig;
+}
+
+function isEnabled(value: string): boolean {
+  return ["1", "true", "yes", "on"].includes(value.toLowerCase());
+}
+
+function normalizeBasePath(basePath: string): string {
+  const trimmed = basePath.trim();
+  if (!trimmed || trimmed === "/") {
+    return "/";
+  }
+  return `/${trimmed.replace(/^\/+|\/+$/g, "")}`;
+}
+
 export default function (pi: ExtensionAPI) {
   // Initialize configuration
   configManager = new ConfigManager(DEFAULT_CONFIG);
@@ -72,7 +118,7 @@ export default function (pi: ExtensionAPI) {
    */
   pi.on("session_start", async (event, ctx) => {
     currentCtx = ctx;
-    const config = configManager!.getConfig();
+    const config = getRuntimeConfig(configManager!.getConfig());
 
     // Initialize A2A client
     a2aClient = new A2AClient(config.client, config.security);
@@ -395,8 +441,8 @@ export default function (pi: ExtensionAPI) {
           return;
         }
 
-        const port = parts[1] ? parseInt(parts[1], 10) : 10000;
-        const config = configManager!.getConfig();
+        const config = getRuntimeConfig(configManager!.getConfig());
+        const port = parts[1] ? parseInt(parts[1], 10) : config.server.port;
         
         a2aServer = new A2AServer(
           { ...config.server, enabled: true, port },

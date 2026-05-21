@@ -63,11 +63,13 @@ For separate project-local A2A state, run each project with its own config direc
 
 ```bash
 # Project A
-PI_A2A_CONFIG_DIR=.pi-a2a PI_A2A_PORT=10001 pi
+PI_A2A_CONFIG_DIR=.pi-a2a PI_A2A_HOST=127.0.0.1 PI_A2A_PORT=10001 pi
 
 # Project B
-PI_A2A_CONFIG_DIR=.pi-a2a PI_A2A_PORT=10002 pi
+PI_A2A_CONFIG_DIR=.pi-a2a PI_A2A_HOST=127.0.0.1 PI_A2A_PORT=10002 pi
 ```
+
+`PI_A2A_PORT` starts the A2A server for that process. You can also set `PI_A2A_SERVER_ENABLED=true` explicitly. Use `PI_A2A_ADVERTISED_URL` to override the Agent Card URL, and `PI_A2A_BASE_PATH` to serve A2A endpoints under a path prefix.
 
 ### Default Configuration
 

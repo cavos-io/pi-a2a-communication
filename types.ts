@@ -203,6 +203,7 @@ export interface ServerConfig {
   port: number;
   host: string;
   basePath: string;
+  advertisedUrl?: string;
   ssl?: {
     cert: string;
     key: string;
