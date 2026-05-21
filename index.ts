@@ -44,6 +44,7 @@ type PendingSessionReply = {
   resolve: (text: string) => void;
   reject: (error: Error) => void;
   timeout: NodeJS.Timeout;
+  active: boolean;
 };
 
 class SessionReplyBridge {
@@ -56,7 +57,7 @@ class SessionReplyBridge {
       const text = this.messageText(event.message);
       for (const pending of this.pending.values()) {
         if (text.includes(pending.marker)) {
-          this.active.push(pending);
+          this.activate(pending);
           return;
         }
       }
@@ -88,15 +89,23 @@ class SessionReplyBridge {
         reject(new Error(`Timed out after ${timeoutMs}ms waiting for active Pi session reply`));
       }, timeoutMs);
 
-      this.pending.set(marker, { marker, resolve, reject, timeout });
+      const pending: PendingSessionReply = { marker, resolve, reject, timeout, active: false };
+      this.pending.set(marker, pending);
       try {
         this.pi.sendUserMessage(markedMessage, { deliverAs: "followUp" });
+        this.activate(pending);
       } catch (error) {
         clearTimeout(timeout);
         this.pending.delete(marker);
         reject(error instanceof Error ? error : new Error(String(error)));
       }
     });
+  }
+
+  private activate(pending: PendingSessionReply): void {
+    if (pending.active) return;
+    pending.active = true;
+    this.active.push(pending);
   }
 
   private messageText(message: { content?: unknown }): string {
