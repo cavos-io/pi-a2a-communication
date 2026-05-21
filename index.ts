@@ -236,6 +236,37 @@ function normalizeBasePath(basePath: string): string {
   return `/${trimmed.replace(/^\/+|\/+$/g, "")}`;
 }
 
+function parseA2ASendArgs(args: string): { agentRef: string; message: string } | null {
+  const trimmed = args.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const quoted = trimmed.match(/^"([^"]+)"\s+([\s\S]+)$/);
+  if (quoted) {
+    return { agentRef: quoted[1], message: quoted[2].trim() };
+  }
+
+  const parts = trimmed.split(/\s+/);
+  if (parts.length < 2) {
+    return null;
+  }
+
+  return {
+    agentRef: parts[0],
+    message: parts.slice(1).join(" "),
+  };
+}
+
+function isValidUrl(value: string): boolean {
+  try {
+    new URL(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export default function (pi: ExtensionAPI) {
   // Initialize configuration
   configManager = new ConfigManager(DEFAULT_CONFIG);
@@ -369,25 +400,27 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      const parts = args.trim().split(/\s+/);
-      if (parts.length < 2) {
+      const parsed = parseA2ASendArgs(args);
+      if (!parsed) {
         ctx.ui?.notify?.("Usage: /a2a-send <agent-url-or-name> <task-message>", "warning");
         return;
       }
 
-      const agentRef = parts[0];
-      const message = parts.slice(1).join(" ");
+      const { agentRef, message } = parsed;
 
       try {
-        // Resolve agent reference
-        let agentUrl = agentRef;
+        // Resolve registered agent by id, name, or URL before treating target as direct URL
         const knownAgent = configManager!.getRemoteAgent(agentRef);
-        if (knownAgent) {
-          agentUrl = knownAgent.url;
+        if (!knownAgent && !isValidUrl(agentRef)) {
+          ctx.ui?.notify?.(
+            `Unknown A2A agent: ${agentRef}. Run /a2a-agents or /a2a-discover first.`,
+            "error"
+          );
+          return;
         }
 
         // Get or discover agent
-        let agent = knownAgent || await agentDiscovery!.discoverAgent(agentUrl);
+        let agent = knownAgent || await agentDiscovery!.discoverAgent(agentRef);
 
         ctx.ui?.notify?.(`Sending task to ${agent.name}...`, "info");
 

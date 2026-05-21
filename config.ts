@@ -173,9 +173,13 @@ export class ConfigManager {
       return agent;
     }
     
-    // Try name match
+    // Try id or name match
     for (const agent of this.remoteAgents.values()) {
-      if (agent.name === urlOrName || agent.name.toLowerCase().replace(/\s+/g, "-") === urlOrName.toLowerCase()) {
+      if (
+        agent.id === urlOrName ||
+        agent.name === urlOrName ||
+        agent.name.toLowerCase().replace(/\s+/g, "-") === urlOrName.toLowerCase()
+      ) {
         agent.lastUsedAt = Date.now();
         return agent;
       }
