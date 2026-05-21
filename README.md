@@ -57,7 +57,17 @@ The extension will be automatically loaded on next pi startup.
 
 ## Configuration
 
-Configuration is stored in `~/.pi/agent/a2a/config.json` and `~/.pi/agent/a2a/agents.json`.
+Configuration is stored in `~/.pi/agent/a2a/config.json` and `~/.pi/agent/a2a/agents.json` by default. Set `PI_A2A_CONFIG_DIR` to use a different directory for both files.
+
+For separate project-local A2A state, run each project with its own config directory and port:
+
+```bash
+# Project A
+PI_A2A_CONFIG_DIR=.pi-a2a PI_A2A_PORT=10001 pi
+
+# Project B
+PI_A2A_CONFIG_DIR=.pi-a2a PI_A2A_PORT=10002 pi
+```
 
 ### Default Configuration
 

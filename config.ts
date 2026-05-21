@@ -45,10 +45,14 @@ const DEFAULTS: A2AConfig = {
  * Configuration file path
  */
 function getConfigDir(): string {
-  const configDir = path.join(os.homedir(), ".pi", "agent", "a2a");
+  const configDir = process.env.PI_A2A_CONFIG_DIR
+    ? path.resolve(process.env.PI_A2A_CONFIG_DIR)
+    : path.join(os.homedir(), ".pi", "agent", "a2a");
+
   if (!fs.existsSync(configDir)) {
     fs.mkdirSync(configDir, { recursive: true });
   }
+
   return configDir;
 }
 
@@ -75,6 +79,9 @@ export class ConfigManager {
     
     // Merge defaults with provided defaults
     this.config = this.deepMerge(DEFAULTS, defaults || {});
+    
+    // Ensure default files exist before loading from disk
+    this.ensureFiles();
     
     // Load from disk
     this.load();
@@ -253,6 +260,23 @@ export class ConfigManager {
       }
     } catch (error) {
       console.error("Failed to load A2A configuration:", error);
+    }
+  }
+
+  /**
+   * Ensure configuration files exist on disk
+   */
+  private ensureFiles(): void {
+    try {
+      if (!fs.existsSync(this.configPath)) {
+        fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2));
+      }
+
+      if (!fs.existsSync(this.agentsPath)) {
+        fs.writeFileSync(this.agentsPath, JSON.stringify([], null, 2));
+      }
+    } catch (error) {
+      console.error("Failed to initialize A2A configuration:", error);
     }
   }
 
