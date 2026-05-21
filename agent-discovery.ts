@@ -58,7 +58,7 @@ export class AgentDiscovery {
 
       const remoteAgent: RemoteAgent = {
         ...card,
-        url: agentUrl,
+        url: card.url || agentUrl,
         discoveredAt: Date.now(),
         healthStatus: "unknown",
       };

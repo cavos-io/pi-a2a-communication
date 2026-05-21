@@ -151,14 +151,14 @@ export class ConfigManager {
   /**
    * Add a remote agent to the registry
    */
-  addRemoteAgent(url: string, agent: Omit<RemoteAgent, "url" | "discoveredAt">): void {
+  addRemoteAgent(url: string, agent: Omit<RemoteAgent, "discoveredAt">): void {
     const remoteAgent: RemoteAgent = {
       ...agent,
-      url,
+      url: agent.url || url,
       discoveredAt: Date.now(),
     };
     
-    this.remoteAgents.set(url, remoteAgent);
+    this.remoteAgents.set(remoteAgent.url, remoteAgent);
     this.saveAgents();
   }
 
